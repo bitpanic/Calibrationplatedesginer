@@ -35,12 +35,10 @@ def create_demo_files():
     designer.update_parameters(1)
     designer.section_configs[1]['params']['grid_size'].set(1.0)
     
-    # Configure section 3: Line pairs with 1µm spacing
+    # Configure section 3: Line pairs with multi-pattern mode
     designer.section_configs[2]['pattern_type'].set('Line Pair Patterns')
     designer.update_parameters(2)
-    designer.section_configs[2]['params']['line_spacing'].set(1.0)
-    designer.section_configs[2]['params']['line_width'].set(0.3)
-    designer.section_configs[2]['params']['orientation'].set('vertical')
+    designer.section_configs[2]['params']['pattern_type'].set('multi')  # Use multi-pattern mode
     
     # Configure section 4: Crosshair alignment markers
     designer.section_configs[3]['pattern_type'].set('Alignment Markers')
@@ -170,7 +168,7 @@ def print_demo_info():
     print("• Margin: 5mm")
     print("• Section 1: Resolution dots (2µm spacing, 0.5µm diameter)")
     print("• Section 2: Distortion grid (1mm squares)")
-    print("• Section 3: Line pairs (1µm spacing, 0.3µm width, vertical)")
+    print("• Section 3: Line pairs (multi-pattern mode)")
     print("• Section 4: Crosshair alignment markers (3mm size)")
     print()
 

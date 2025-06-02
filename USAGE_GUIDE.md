@@ -38,15 +38,29 @@
 - Coarse analysis: 5 mm grid
 
 ### Line Pair Patterns
-- **Recommended spacing**: 1-20 µm
-- **Line width**: Usually 30-50% of spacing
-- **Orientation**: Choose vertical or horizontal based on measurement needs
-- Creates alternating lines with gaps
+- **Pattern Mode**: Choose between 'single' or 'multi' pattern mode
+- **Single Mode**: Traditional single orientation pattern
+  - **Recommended spacing**: 1-20 µm
+  - **Line width**: Usually 30-50% of spacing
+  - **Orientation**: Choose vertical or horizontal based on measurement needs
+- **Multi Mode**: Creates comprehensive resolution test with multiple sub-patterns
+  - **Creates 3x3 grid** within the section
+  - **Line spacings**: 7µm, 5µm, 3µm, 2µm, 1µm, 700nm, 500nm, 300nm, 250nm
+  - **Orientations**: 0° (horizontal), 45° (diagonal), 90° (vertical)
+  - **Automatic labeling** with spacing values and orientations
+  - **Sub-section borders** for easy identification
 
-**Example configurations**:
+**Single Mode Example configurations**:
 - High resolution: 1 µm spacing, 0.3 µm width
 - Medium resolution: 5 µm spacing, 1.5 µm width
 - Low resolution: 20 µm spacing, 6 µm width
+
+**Multi Mode Features**:
+- **Comprehensive testing**: Range from 7µm down to 250nm in a single section
+- **Three orientations**: Tests resolution in different directions
+- **Automatic optimization**: Each sub-pattern optimized for its area
+- **Clear labeling**: Each pattern labeled with spacing and orientation
+- **Performance optimized**: Limited line counts to prevent freezing
 
 ### Alignment Markers
 - **Crosshair**: Simple + shape for basic alignment
@@ -155,14 +169,32 @@ The application automatically limits patterns to **10,000 elements** per section
 - **Plate**: 50mm x 50mm, 5mm margin
 - **Section 1**: Resolution dots, 2 µm spacing, 0.5 µm diameter
 - **Section 2**: Distortion grid, 1 mm squares
-- **Section 3**: Line pairs, 5 µm spacing, vertical
+- **Section 3**: Line pairs, multi-pattern mode (comprehensive resolution test)
 - **Section 4**: Crosshair markers, 3 mm size
 
 ### Lithography Test Plate  
 - **Plate**: 101.6mm x 101.6mm, 10mm margin
 - **Section 1**: Resolution dots, 0.5 µm spacing, 0.1 µm diameter
-- **Section 2**: Line pairs, 1 µm spacing, 0.3 µm width, vertical
-- **Section 3**: Line pairs, 1 µm spacing, 0.3 µm width, horizontal
+- **Section 2**: Line pairs, multi-pattern mode (7µm down to 250nm)
+- **Section 3**: Distortion grid, 0.5 mm squares
 - **Section 4**: Fiducial markers, 2 mm size
 
-Remember: The generated files include section outlines (gray dashed lines) to help identify different pattern areas during analysis. 
+### High-Resolution Research Plate
+- **Plate**: 50mm x 50mm, 3mm margin
+- **Section 1**: Line pairs, single mode, 250nm spacing, vertical
+- **Section 2**: Line pairs, single mode, 250nm spacing, horizontal
+- **Section 3**: Resolution dots, 200nm spacing, 50nm diameter
+- **Section 4**: Line pairs, multi-pattern mode
+
+### Multi-Scale Characterization Plate
+- **Plate**: 101.6mm x 101.6mm, 15mm margin
+- **Section 1**: Resolution dots, 5µm spacing (low magnification)
+- **Section 2**: Resolution dots, 1µm spacing (medium magnification)
+- **Section 3**: Line pairs, multi-pattern mode (comprehensive)
+- **Section 4**: Alignment markers, scale bars, 5mm size
+
+Remember: 
+- The generated files include **section numbering** (Section 1-4) in blue text
+- **Pattern type labels** are shown under each section number
+- **Section outlines** (gray dashed lines) help identify different pattern areas
+- **Multi-pattern sections** include **sub-section borders** and **individual pattern labels** 
