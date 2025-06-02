@@ -118,10 +118,20 @@ class ResolutionPatternGenerator(PatternGenerator):
             for col in range(cols):
                 x = start_x + col * actual_spacing_x if cols > 1 else start_x
                 y = start_y + row * actual_spacing_y if rows > 1 else start_y
-                # Add a solid filled circle using HATCH
+                # Add a solid filled circle using a polygonal hatch
                 circle = msp.add_circle(center=(x, y), radius=dot_diameter/2)
-                hatch = msp.add_hatch(color=7)  # 7 = black/white depending on background
-                hatch.paths.add_circle((x, y), dot_diameter/2)
+                hatch = msp.add_hatch(color=0, dxfattribs={'color': 0, 'true_color': 0x000000})
+                hatch.set_pattern_fill('SOLID')
+                num_points = 20
+                angle_step = 2 * math.pi / num_points
+                points = [
+                    (
+                        x + (dot_diameter/2) * math.cos(i * angle_step),
+                        y + (dot_diameter/2) * math.sin(i * angle_step)
+                    )
+                    for i in range(num_points)
+                ]
+                hatch.paths.add_polyline_path(points, is_closed=True)
 
 
 class DistortionPatternGenerator(PatternGenerator):
