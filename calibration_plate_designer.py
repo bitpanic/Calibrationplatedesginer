@@ -49,12 +49,19 @@ class PatternGenerator:
 class ResolutionPatternGenerator(PatternGenerator):
     """Generator for dot array patterns"""
     
+    def __init__(self, name: str, parameters: Dict[str, Any]):
+        super().__init__(name, parameters)
+        self.resolution_patterns = {
+            'dot_spacing': parameters.get('dot_spacing', 0.25),
+            'dot_diameter': parameters.get('dot_diameter', 0.125)
+        }
+    
     def generate_svg_elements(self, dwg, x_offset: float, y_offset: float,
                             section_width: float, section_height: float) -> List:
         elements = []
         # Use fixed values for solid fill
-        dot_spacing = 0.25  # mm
-        dot_diameter = 0.125  # mm
+        dot_spacing = self.resolution_patterns['dot_spacing']  # mm
+        dot_diameter = self.resolution_patterns['dot_diameter']  # mm
         
         # Calculate number of dots that fit
         cols = max(1, int(section_width / dot_spacing))
@@ -89,49 +96,31 @@ class ResolutionPatternGenerator(PatternGenerator):
     
     def generate_dxf_elements(self, msp, x_offset: float, y_offset: float,
                             section_width: float, section_height: float):
-        # Use fixed values for solid fill
-        dot_spacing = 0.25  # mm
-        dot_diameter = 0.125  # mm
-        
-        # Calculate number of dots that fit
-        cols = max(1, int(section_width / dot_spacing))
-        rows = max(1, int(section_height / dot_spacing))
-        
-        # Validate element count
-        total_dots = cols * rows
-        if not self._validate_element_count(total_dots, f"Resolution pattern ({cols}x{rows} dots)"):
-            # Reduce density by increasing effective spacing
-            max_cols = int(math.sqrt(MAX_ELEMENTS_PER_PATTERN * section_width / section_height))
-            max_rows = int(MAX_ELEMENTS_PER_PATTERN / max_cols)
-            cols = min(cols, max_cols)
-            rows = min(rows, max_rows)
-            print(f"Reduced to {cols}x{rows} dots to prevent freezing")
-        
-        # Center the pattern
-        actual_spacing_x = section_width / max(1, cols - 1) if cols > 1 else 0
-        actual_spacing_y = section_height / max(1, rows - 1) if rows > 1 else 0
-        
-        start_x = x_offset + (section_width - (cols - 1) * actual_spacing_x) / 2 if cols > 1 else x_offset + section_width / 2
-        start_y = y_offset + (section_height - (rows - 1) * actual_spacing_y) / 2 if rows > 1 else y_offset + section_height / 2
-        
+        dot_spacing = self.resolution_patterns['dot_spacing']  # mm
+        dot_diameter = self.resolution_patterns['dot_diameter']  # mm
+
+        cols = int((section_width - dot_diameter) // dot_spacing) + 1
+        rows = int((section_height - dot_diameter) // dot_spacing) + 1
+
+        start_x = x_offset + dot_diameter / 2
+        start_y = y_offset + dot_diameter / 2
+
         for row in range(rows):
+            y = start_y + row * dot_spacing
+            if y + dot_diameter / 2 > y_offset + section_height:
+                break
             for col in range(cols):
-                x = start_x + col * actual_spacing_x if cols > 1 else start_x
-                y = start_y + row * actual_spacing_y if rows > 1 else start_y
-                # Add a solid filled circle using a polygonal hatch
-                circle = msp.add_circle(center=(x, y), radius=dot_diameter/2)
+                x = start_x + col * dot_spacing
+                if x + dot_diameter / 2 > x_offset + section_width:
+                    break
+                # Add the circle boundary
+                msp.add_circle(center=(x, y), radius=dot_diameter/2)
+                # Add a solid hatch using the circle as the boundary
                 hatch = msp.add_hatch(color=0, dxfattribs={'color': 0, 'true_color': 0x000000})
-                hatch.set_pattern_fill('SOLID')
-                num_points = 20
-                angle_step = 2 * math.pi / num_points
-                points = [
-                    (
-                        x + (dot_diameter/2) * math.cos(i * angle_step),
-                        y + (dot_diameter/2) * math.sin(i * angle_step)
-                    )
-                    for i in range(num_points)
-                ]
-                hatch.paths.add_polyline_path(points, is_closed=True)
+                hatch.set_solid_fill(color=0)
+                edge_path = hatch.paths.add_edge_path()
+                edge_path.add_arc((x, y), radius=dot_diameter/2, start_angle=0, end_angle=360)
+        return
 
 
 class DistortionPatternGenerator(PatternGenerator):
@@ -179,10 +168,8 @@ class DistortionPatternGenerator(PatternGenerator):
     def generate_dxf_elements(self, msp, x_offset: float, y_offset: float,
                             section_width: float, section_height: float):
         grid_size = self.parameters.get('grid_size', 1.0)  # mm
-        
         cols = max(1, int(section_width / grid_size))
         rows = max(1, int(section_height / grid_size))
-        
         # Validate element count (only half the squares are filled)
         filled_squares = (cols * rows) // 2
         if not self._validate_element_count(filled_squares, f"Distortion pattern ({cols}x{rows} grid)"):
@@ -193,18 +180,16 @@ class DistortionPatternGenerator(PatternGenerator):
             cols = min(cols, max_cols)
             rows = min(rows, max_rows)
             print(f"Reduced to {cols}x{rows} grid to prevent freezing")
-        
         # Adjust grid size to fit exactly
         actual_grid_w = section_width / cols
         actual_grid_h = section_height / rows
-        
         # Center the pattern
         start_x = x_offset
         start_y = y_offset
-        
+        # Collect all filled square paths
+        filled_paths = []
         for row in range(rows):
             for col in range(cols):
-                # Checkerboard pattern
                 if (row + col) % 2 == 0:
                     x = start_x + col * actual_grid_w
                     y = start_y + row * actual_grid_h
@@ -216,6 +201,14 @@ class DistortionPatternGenerator(PatternGenerator):
                         (x, y)
                     ]
                     msp.add_lwpolyline(points, close=True)
+                    filled_paths.append(points)
+        # Add a single solid hatch for all filled squares
+        if filled_paths:
+            hatch = msp.add_hatch(color=0, dxfattribs={'color': 0, 'true_color': 0x000000})
+            hatch.set_pattern_fill('SOLID')
+            for path in filled_paths:
+                hatch.paths.add_polyline_path(path, is_closed=True)
+        return
 
 
 class LinePairPatternGenerator(PatternGenerator):
@@ -294,189 +287,71 @@ class LinePairPatternGenerator(PatternGenerator):
     
     def _generate_multi_pattern_svg(self, dwg, x_offset: float, y_offset: float,
                                   section_width: float, section_height: float) -> List:
-        """Generate multiple line patterns with different orientations and spacings"""
         elements = []
-        
-        # Define line spacings with larger differences to ensure visible distinction
-        # Each pattern will have a different target number of lines
-        pattern_configs = [
-            {'spacing_um': 7.0, 'target_lines': 3, 'orientation': 0},    # 3 thick lines
-            {'spacing_um': 5.0, 'target_lines': 5, 'orientation': 45},   # 5 medium lines
-            {'spacing_um': 3.0, 'target_lines': 7, 'orientation': 90},   # 7 lines (changed from 8)
-            {'spacing_um': 2.0, 'target_lines': 10, 'orientation': 0},   # 10 lines
-            {'spacing_um': 1.0, 'target_lines': 15, 'orientation': 45},  # 15 fine lines
-            {'spacing_um': 0.7, 'target_lines': 20, 'orientation': 90},  # 20 very fine lines
-            {'spacing_um': 0.5, 'target_lines': 12, 'orientation': 0},   # 12 ultra-fine lines
-            {'spacing_um': 0.3, 'target_lines': 8, 'orientation': 45},   # 8 ultra-fine lines
-            {'spacing_um': 0.25, 'target_lines': 6, 'orientation': 90}   # 6 ultra-fine lines
-        ]
-        
-        # Create a 3x3 grid within the section
-        rows = 3
-        cols = 3
+        lpmm_values = [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216]
+        orientations = [0, 90, 0, 90, 0, 90] * 6
+        rows = 6
+        cols = 6
         sub_width = section_width / cols
         sub_height = section_height / rows
-        
-        pattern_index = 0
-        
-        for row in range(rows):
-            for col in range(cols):
-                if pattern_index >= len(pattern_configs):
-                    break
-                    
-                # Calculate sub-section position
-                sub_x = x_offset + col * sub_width
-                sub_y = y_offset + row * sub_height
-                
-                # Get pattern configuration
-                config = pattern_configs[pattern_index]
-                spacing_um = config['spacing_um']
-                target_lines = config['target_lines']
-                orientation = config['orientation']
-                line_width_um = spacing_um * 0.3  # 30% of spacing
-                
-                # Generate the pattern with specific target line count
-                sub_elements = self._generate_targeted_lines_svg(
-                    dwg, sub_x, sub_y, sub_width, sub_height,
-                    spacing_um, line_width_um, orientation, target_lines
-                )
-                elements.extend(sub_elements)
-                
-                # Add label for spacing
-                label_x = sub_x + 1  # 1mm from left edge
-                label_y = sub_y + sub_height - 0.5  # 0.5mm from bottom
-                spacing_text = f"{spacing_um}µm" if spacing_um >= 1 else f"{int(spacing_um*1000)}nm"
-                
-                text_element = dwg.text(
-                    spacing_text,
-                    insert=(label_x, label_y),
-                    font_size='0.8mm',
-                    fill='black',
-                    font_family='Arial'
-                )
-                elements.append(text_element)
-                
-                # Add orientation indicator
-                orientation_text = f"{orientation}°"
-                orient_element = dwg.text(
-                    orientation_text,
-                    insert=(label_x, label_y - 1.2),
-                    font_size='0.6mm',
-                    fill='gray',
-                    font_family='Arial'
-                )
-                elements.append(orient_element)
-                
-                # Add line count indicator
-                count_element = dwg.text(
-                    f"{target_lines}L",
-                    insert=(label_x, label_y - 2.0),
-                    font_size='0.6mm',
-                    fill='blue',
-                    font_family='Arial'
-                )
-                elements.append(count_element)
-                
-                # Add sub-section border
-                border = dwg.rect(
-                    insert=(sub_x, sub_y),
-                    size=(sub_width, sub_height),
-                    fill='none',
-                    stroke='lightgray',
-                    stroke_width=0.02
-                )
-                elements.append(border)
-                
-                pattern_index += 1
-        
+        for idx in range(rows * cols):
+            row = idx // cols
+            col = idx % cols
+            lpmm = lpmm_values[idx]
+            orientation = orientations[idx]
+            spacing_mm = 1 / (2 * lpmm)
+            min_pairs = 5
+            if orientation == 0:
+                available = sub_height * 0.9
+            else:
+                available = sub_width * 0.9
+            n_pairs = max(min_pairs, int(available / (2 * spacing_mm)))
+            n_lines = n_pairs * 2
+            line_width_mm = spacing_mm * 0.5
+            sub_x = x_offset + col * sub_width
+            sub_y = y_offset + row * sub_height
+            margin_x = sub_x + sub_width * 0.05
+            margin_y = sub_y + sub_height * 0.05
+            pattern_w = sub_width * 0.9
+            pattern_h = sub_height * 0.9
+            elements.extend(self._generate_edmund_lines_svg(
+                dwg, margin_x, margin_y, pattern_w, pattern_h,
+                spacing_mm, line_width_mm, orientation, n_lines
+            ))
+            # Remove label
+            # Remove border if you want only patterns:
+            border = dwg.rect(
+                insert=(sub_x, sub_y),
+                size=(sub_width, sub_height),
+                fill='none',
+                stroke='lightgray',
+                stroke_width=0.02
+            )
+            elements.append(border)
         return elements
-    
-    def _generate_targeted_lines_svg(self, dwg, x_offset: float, y_offset: float,
-                                   width: float, height: float,
-                                   spacing_um: float, line_width_um: float, 
-                                   angle: float, target_lines: int) -> List:
-        """Generate lines with specific target line count"""
+
+    def _generate_edmund_lines_svg(self, dwg, x, y, w, h, spacing, line_width, orientation, n_lines):
         elements = []
-        
-        # Convert µm to mm
-        line_width_mm = line_width_um / 1000
-        
-        # Leave some margin within each sub-section
-        margin = min(width, height) * 0.05
-        pattern_width = width - 2 * margin
-        pattern_height = height - 2 * margin
-        pattern_x = x_offset + margin
-        pattern_y = y_offset + margin
-        
-        # Use the target line count directly
-        num_lines = min(target_lines, 25)  # Safety limit
-        
-        if angle == 0:  # Horizontal lines
-            if num_lines > 0 and pattern_height > 0:
-                line_spacing = pattern_height / num_lines
-                
-                for i in range(num_lines):
-                    y = pattern_y + i * line_spacing
-                    if y + line_width_mm <= pattern_y + pattern_height:
-                        line = dwg.rect(
-                            insert=(pattern_x, y),
-                            size=(pattern_width, line_width_mm),
-                            fill='black',
-                            stroke='none'
-                        )
-                        elements.append(line)
-                        
-        elif angle == 90:  # Vertical lines
-            if num_lines > 0 and pattern_width > 0:
-                line_spacing = pattern_width / num_lines
-                
-                for i in range(num_lines):
-                    x = pattern_x + i * line_spacing
-                    if x + line_width_mm <= pattern_x + pattern_width:
-                        line = dwg.rect(
-                            insert=(x, pattern_y),
-                            size=(line_width_mm, pattern_height),
-                            fill='black',
-                            stroke='none'
-                        )
-                        elements.append(line)
-                        
-        elif angle == 45:  # Diagonal lines
-            if num_lines > 0:
-                # For diagonal lines, distribute them across the diagonal space
-                diagonal_length = math.sqrt(pattern_width**2 + pattern_height**2)
-                line_spacing = diagonal_length / num_lines
-                
-                center_x = pattern_x + pattern_width / 2
-                center_y = pattern_y + pattern_height / 2
-                
-                for i in range(num_lines):
-                    # Calculate offset from center line
-                    offset = (i - num_lines/2) * line_spacing
-                    
-                    # Calculate line endpoints for 45° diagonal
-                    start_offset_x = offset / math.sqrt(2)
-                    start_offset_y = -offset / math.sqrt(2)
-                    
-                    # Calculate actual line endpoints within the pattern area
-                    line_length = min(pattern_width, pattern_height) * 0.7
-                    
-                    x1 = center_x + start_offset_x - line_length / (2 * math.sqrt(2))
-                    y1 = center_y + start_offset_y + line_length / (2 * math.sqrt(2))
-                    x2 = center_x + start_offset_x + line_length / (2 * math.sqrt(2))
-                    y2 = center_y + start_offset_y - line_length / (2 * math.sqrt(2))
-                    
-                    # Only draw if line is within pattern bounds
-                    if (x1 >= pattern_x and x2 <= pattern_x + pattern_width and
-                        y2 >= pattern_y and y1 <= pattern_y + pattern_height):
-                        line = dwg.line(
-                            start=(x1, y1),
-                            end=(x2, y2),
-                            stroke='black',
-                            stroke_width=line_width_mm
-                        )
-                        elements.append(line)
-        
+        if orientation == 0:  # horizontal
+            for i in range(n_lines):
+                y0 = y + i * spacing
+                if y0 + line_width > y + h:
+                    break
+                elements.append(dwg.rect(
+                    insert=(x, y0),
+                    size=(w, line_width),
+                    fill='black' if i % 2 == 0 else 'white',
+                    stroke='none'))
+        elif orientation == 90:  # vertical
+            for i in range(n_lines):
+                x0 = x + i * spacing
+                if x0 + line_width > x + w:
+                    break
+                elements.append(dwg.rect(
+                    insert=(x0, y),
+                    size=(line_width, h),
+                    fill='black' if i % 2 == 0 else 'white',
+                    stroke='none'))
         return elements
     
     def generate_dxf_elements(self, msp, x_offset: float, y_offset: float,
@@ -549,150 +424,74 @@ class LinePairPatternGenerator(PatternGenerator):
     
     def _generate_multi_pattern_dxf(self, msp, x_offset: float, y_offset: float,
                                   section_width: float, section_height: float):
-        """Generate multiple line patterns for DXF"""
-        # Use the same pattern configurations as SVG
-        pattern_configs = [
-            {'spacing_um': 7.0, 'target_lines': 3, 'orientation': 0},    # 3 thick lines
-            {'spacing_um': 5.0, 'target_lines': 5, 'orientation': 45},   # 5 medium lines
-            {'spacing_um': 3.0, 'target_lines': 7, 'orientation': 90},   # 7 lines (changed from 8)
-            {'spacing_um': 2.0, 'target_lines': 10, 'orientation': 0},   # 10 lines
-            {'spacing_um': 1.0, 'target_lines': 15, 'orientation': 45},  # 15 fine lines
-            {'spacing_um': 0.7, 'target_lines': 20, 'orientation': 90},  # 20 very fine lines
-            {'spacing_um': 0.5, 'target_lines': 12, 'orientation': 0},   # 12 ultra-fine lines
-            {'spacing_um': 0.3, 'target_lines': 8, 'orientation': 45},   # 8 ultra-fine lines
-            {'spacing_um': 0.25, 'target_lines': 6, 'orientation': 90}   # 6 ultra-fine lines
-        ]
-        
-        # Create a 3x3 grid
-        rows = 3
-        cols = 3
+        """Generate multiple line patterns for DXF (Edmund Optics style, 6x6 grid)"""
+        # lpmm_values: 1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216
+        lpmm_values = [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216]
+        orientations = [0, 90, 0, 90, 0, 90] * 6  # Alternate horizontal/vertical
+        rows = 6
+        cols = 6
         sub_width = section_width / cols
         sub_height = section_height / rows
-        
-        pattern_index = 0
-        
-        for row in range(rows):
-            for col in range(cols):
-                if pattern_index >= len(pattern_configs):
-                    break
-                    
-                sub_x = x_offset + col * sub_width
-                sub_y = y_offset + row * sub_height
-                
-                # Get pattern configuration
-                config = pattern_configs[pattern_index]
-                spacing_um = config['spacing_um']
-                target_lines = config['target_lines']
-                orientation = config['orientation']
-                line_width_um = spacing_um * 0.3
-                
-                self._generate_targeted_lines_dxf(
-                    msp, sub_x, sub_y, sub_width, sub_height,
-                    spacing_um, line_width_um, orientation, target_lines
-                )
-                
-                # Add sub-section border
-                border_points = [
-                    (sub_x, sub_y),
-                    (sub_x + sub_width, sub_y),
-                    (sub_x + sub_width, sub_y + sub_height),
-                    (sub_x, sub_y + sub_height),
-                    (sub_x, sub_y)
-                ]
-                msp.add_lwpolyline(border_points, close=True)
-                
-                # Add text labels
-                spacing_text = f"{spacing_um}µm" if spacing_um >= 1 else f"{int(spacing_um*1000)}nm"
-                msp.add_text(spacing_text, dxfattribs={
-                    'height': 0.8,
-                    'insert': (sub_x + 1, sub_y + sub_height - 0.5)
-                })
-                msp.add_text(f"{orientation}°", dxfattribs={
-                    'height': 0.6,
-                    'insert': (sub_x + 1, sub_y + sub_height - 1.7)
-                })
-                msp.add_text(f"{target_lines}L", dxfattribs={
-                    'height': 0.6,
-                    'insert': (sub_x + 1, sub_y + sub_height - 2.6)
-                })
-                
-                pattern_index += 1
-    
-    def _generate_targeted_lines_dxf(self, msp, x_offset: float, y_offset: float,
-                                   width: float, height: float,
-                                   spacing_um: float, line_width_um: float, 
-                                   angle: float, target_lines: int):
-        """Generate lines with specific target line count for DXF"""
-        line_width_mm = line_width_um / 1000
-        
-        margin = min(width, height) * 0.05
-        pattern_width = width - 2 * margin
-        pattern_height = height - 2 * margin
-        pattern_x = x_offset + margin
-        pattern_y = y_offset + margin
-        
-        # Use the target line count directly
-        num_lines = min(target_lines, 25)  # Safety limit
-        
-        if angle == 0:  # Horizontal lines
-            if num_lines > 0 and pattern_height > 0:
-                line_spacing = pattern_height / num_lines
-                
-                for i in range(num_lines):
-                    y = pattern_y + i * line_spacing
-                    if y + line_width_mm <= pattern_y + pattern_height:
-                        points = [
-                            (pattern_x, y),
-                            (pattern_x + pattern_width, y),
-                            (pattern_x + pattern_width, y + line_width_mm),
-                            (pattern_x, y + line_width_mm),
-                            (pattern_x, y)
-                        ]
-                        msp.add_lwpolyline(points, close=True)
-                        
-        elif angle == 90:  # Vertical lines
-            if num_lines > 0 and pattern_width > 0:
-                line_spacing = pattern_width / num_lines
-                
-                for i in range(num_lines):
-                    x = pattern_x + i * line_spacing
-                    if x + line_width_mm <= pattern_x + pattern_width:
-                        points = [
-                            (x, pattern_y),
-                            (x + line_width_mm, pattern_y),
-                            (x + line_width_mm, pattern_y + pattern_height),
-                            (x, pattern_y + pattern_height),
-                            (x, pattern_y)
-                        ]
-                        msp.add_lwpolyline(points, close=True)
-                        
-        elif angle == 45:  # Diagonal lines
-            if num_lines > 0:
-                diagonal_length = math.sqrt(pattern_width**2 + pattern_height**2)
-                line_spacing = diagonal_length / num_lines
-                
-                center_x = pattern_x + pattern_width / 2
-                center_y = pattern_y + pattern_height / 2
-                
-                for i in range(num_lines):
-                    offset = (i - num_lines/2) * line_spacing
-                    
-                    start_offset_x = offset / math.sqrt(2)
-                    start_offset_y = -offset / math.sqrt(2)
-                    
-                    line_length = min(pattern_width, pattern_height) * 0.7
-                    
-                    x1 = center_x + start_offset_x - line_length / (2 * math.sqrt(2))
-                    y1 = center_y + start_offset_y + line_length / (2 * math.sqrt(2))
-                    x2 = center_x + start_offset_x + line_length / (2 * math.sqrt(2))
-                    y2 = center_y + start_offset_y - line_length / (2 * math.sqrt(2))
-                    
-                    if (x1 >= pattern_x and x2 <= pattern_x + pattern_width and
-                        y2 >= pattern_y and y1 <= pattern_y + pattern_height):
-                        msp.add_line(
-                            start=(x1, y1),
-                            end=(x2, y2)
-                        )
+        for idx in range(rows * cols):
+            row = idx // cols
+            col = idx % cols
+            lpmm = lpmm_values[idx]
+            orientation = orientations[idx]
+            spacing_mm = 1 / (2 * lpmm)
+            min_pairs = 5
+            if orientation == 0:
+                available = sub_height * 0.9
+            else:
+                available = sub_width * 0.9
+            n_pairs = max(min_pairs, int(available / (2 * spacing_mm)))
+            n_lines = n_pairs * 2
+            line_width_mm = spacing_mm * 0.5
+            sub_x = x_offset + col * sub_width
+            sub_y = y_offset + row * sub_height
+            margin_x = sub_x + sub_width * 0.05
+            margin_y = sub_y + sub_height * 0.05
+            pattern_w = sub_width * 0.9
+            pattern_h = sub_height * 0.9
+            # Draw lines
+            if orientation == 0:  # horizontal
+                for i in range(n_lines):
+                    y0 = margin_y + i * spacing_mm
+                    if y0 + line_width_mm > margin_y + pattern_h:
+                        break
+                    color = 0 if i % 2 == 0 else 7  # 0=black, 7=white
+                    points = [
+                        (margin_x, y0),
+                        (margin_x + pattern_w, y0),
+                        (margin_x + pattern_w, y0 + line_width_mm),
+                        (margin_x, y0 + line_width_mm),
+                        (margin_x, y0)
+                    ]
+                    msp.add_lwpolyline(points, close=True, dxfattribs={'color': color})
+            elif orientation == 90:  # vertical
+                for i in range(n_lines):
+                    x0 = margin_x + i * spacing_mm
+                    if x0 + line_width_mm > margin_x + pattern_w:
+                        break
+                    color = 0 if i % 2 == 0 else 7
+                    points = [
+                        (x0, margin_y),
+                        (x0 + line_width_mm, margin_y),
+                        (x0 + line_width_mm, margin_y + pattern_h),
+                        (x0, margin_y + pattern_h),
+                        (x0, margin_y)
+                    ]
+                    msp.add_lwpolyline(points, close=True, dxfattribs={'color': color})
+            # Remove label
+            # Remove border if you want only patterns:
+            border_points = [
+                (sub_x, sub_y),
+                (sub_x + sub_width, sub_y),
+                (sub_x + sub_width, sub_y + sub_height),
+                (sub_x, sub_y + sub_height),
+                (sub_x, sub_y)
+            ]
+            msp.add_lwpolyline(border_points, close=True)
+        return
 
 
 class AlignmentPatternGenerator(PatternGenerator):
@@ -1079,28 +878,8 @@ class CalibrationPlateDesigner:
                 
                 total_elements += len(elements)
                 
-                # Add section number label
-                section_label = dwg.text(
-                    f"Section {i+1}",
-                    insert=(x_offset + 2, y_offset + 3),  # 2mm from left, 3mm from top
-                    font_size='2mm',
-                    fill='blue',
-                    font_family='Arial',
-                    font_weight='bold'
-                )
-                dwg.add(section_label)
-                
-                # Add pattern type label
-                pattern_label = dwg.text(
-                    pattern_type,
-                    insert=(x_offset + 2, y_offset + 6),  # 2mm from left, 6mm from top
-                    font_size='1.5mm',
-                    fill='darkblue',
-                    font_family='Arial'
-                )
-                dwg.add(pattern_label)
-                
-                # Add section outline for debugging
+                # Remove section number label, pattern type label, and all text
+                # Remove section outline for debugging if you want to keep only patterns:
                 section_outline = dwg.rect(insert=(x_offset, y_offset), 
                                          size=(section_w, section_h),
                                          fill='none', stroke='gray', 
@@ -1179,27 +958,8 @@ class CalibrationPlateDesigner:
                 generator.generate_dxf_elements(msp, x_offset, y_offset, 
                                               section_w, section_h)
                 
-                # Add section number label
-                section_text = msp.add_text(
-                    f"Section {i+1}", 
-                    dxfattribs={
-                        'height': 2.0, 
-                        'color': 5,  # Blue color
-                        'insert': (x_offset + 2, y_offset + section_h - 3)
-                    }
-                )
-                
-                # Add pattern type label
-                pattern_text = msp.add_text(
-                    pattern_type, 
-                    dxfattribs={
-                        'height': 1.5, 
-                        'color': 5,
-                        'insert': (x_offset + 2, y_offset + section_h - 6)
-                    }
-                )
-                
-                # Add section outline for debugging
+                # Remove section number label, pattern type label, and all text
+                # Remove section outline for debugging if you want to keep only patterns:
                 section_outline = [
                     (x_offset, y_offset),
                     (x_offset + section_w, y_offset),
@@ -1214,6 +974,8 @@ class CalibrationPlateDesigner:
             self.root.update()
             
             doc.saveas(filename)
+            
+
             
             # Count entities for feedback
             entity_count = len(list(msp))
